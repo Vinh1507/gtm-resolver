@@ -1,0 +1,9 @@
+version: '3'
+services:
+  nodejs-backend:
+    container_name: simple-backend-dns
+    image: vinhbh/backend-dns:1.0
+    ports:
+      - "8009:8009"
+    environment:
+      NODE_ENV: production

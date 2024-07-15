@@ -1,0 +1,37 @@
+- name: Check if docker-compose.yml exists
+  stat:
+    path: /region1/docker-compose.yml
+  register: compose_file
+
+- name: Run Docker Compose Down
+  shell: sudo docker compose down
+  args:
+    chdir: /region1
+  when: compose_file.stat.exists
+
+- name: Remove directory
+  file:
+    path: /region1           
+    state: absent
+
+- name: Create directory region1
+  file:
+    path: /region1       
+    state: directory
+    mode: '0755'
+
+- name: Copy current directory
+  copy:
+    src: .
+    dest: /region1  
+
+- name: Run Docker Compose Build
+  shell: sudo docker compose build --no-cache
+  args:
+    chdir: /region1
+
+- name: Run Docker Compose Up
+  shell: sudo docker compose up -d
+  args:
+    chdir: /region1
+
