@@ -1,0 +1,9 @@
+version: '3.8'
+
+services:
+  gtm-resolver:
+    build: .
+    container_name: gtm-resolver
+    ports:
+      - "8153:8153/tcp"
+      - "8153:8153/udp"

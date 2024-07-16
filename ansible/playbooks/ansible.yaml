@@ -33,3 +33,8 @@
   become: true
   roles:
     - ../roles/lb_region2
+
+- hosts: dns_server
+  become: true
+  roles:
+    - ../roles/dns_server

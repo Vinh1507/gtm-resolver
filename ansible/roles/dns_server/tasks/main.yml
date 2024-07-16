@@ -1,0 +1,32 @@
+
+- name: Check if docker-compose.yml exists
+  stat:
+    path: /simple-dns-server/docker-compose.yml
+  register: compose_file
+
+- name: Run Docker Compose Down
+  shell: sudo docker compose down
+  args:
+    chdir: /simple-dns-server
+  when: compose_file.stat.exists
+  
+- name: Remove simple-dns-server directory
+  file:
+    path: /simple-dns-server                
+    state: absent
+
+- name: Create directory simple-dns-server         
+  file:
+    path: /simple-dns-server       
+    state: directory
+    mode: '0755'
+
+- name: Copy . directory
+  copy:
+    src: .
+    dest: /simple-dns-server  
+
+- name: Run Docker Compose Up
+  shell: sudo docker compose up -d
+  args:
+    chdir: /simple-dns-server
