@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	gtm_etcd "go-resolver/etcd"
+	gtm_healthcheck "go-resolver/healthcheck"
 	"go-resolver/initializers"
 	"go-resolver/models"
 	"log"
 	"net"
-	"net/http"
 	"os"
-	"time"
 
 	"github.com/miekg/dns"
 )
@@ -21,22 +20,9 @@ var (
 	region2Count = 0
 )
 
-func checkHealth(url string) bool {
-	client := http.Client{
-		Timeout: 2 * time.Second, // Timeout sau 2 giây
-	}
-	resp, err := client.Get(url)
-
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
-
 func getRegionIP(domain string) string {
 	var gtmInfo models.Domain
-	key := fmt.Sprintf("resource/gtm/%s", domain)
+	key := fmt.Sprintf("resource/domain/%s", domain)
 	fmt.Println(key)
 	entries, err := gtm_etcd.GetEntryByKey(key)
 
@@ -52,26 +38,32 @@ func getRegionIP(domain string) string {
 		fmt.Println("Cannot unmarshal gtm info")
 		return ""
 	}
-	region1IP := gtmInfo.DataCenters[0].IP
-	region1Port := gtmInfo.DataCenters[0].Port
-	region1Url := gtmInfo.DataCenters[0].HealthCheckUrl
+	dataCenterKeys := gtmInfo.DataCenters
+	dataCenters := make([]models.DataCenter, 0)
 
-	region2IP := gtmInfo.DataCenters[1].IP
-	region2Port := gtmInfo.DataCenters[1].Port
-	region2Url := gtmInfo.DataCenters[1].HealthCheckUrl
+	for _, dataCenterKey := range dataCenterKeys {
+		entries, err := gtm_etcd.GetEntryByKey(dataCenterKey)
+		if err != nil {
+			fmt.Printf("Failed to get data center %s", dataCenterKey)
+		}
+		jsonStr := entries.Kvs[len(entries.Kvs)-1].Value
+		var dataCenter models.DataCenter
+		err = json.Unmarshal([]byte(jsonStr), &dataCenter)
 
-	region1HealthURL := fmt.Sprintf("http://%s:%d%s", region1IP, region1Port, region1Url)
-	region2HealthURL := fmt.Sprintf("http://%s:%d%s", region2IP, region2Port, region2Url)
-
-	fmt.Println("REGION2", region2HealthURL)
+		if err != nil {
+			fmt.Println("Cannot unmarshal data center info")
+			return ""
+		}
+		dataCenters = append(dataCenters, dataCenter)
+	}
 
 	// Các hằng số để xác định tỉ lệ phân phối
-	region1Ratio := gtmInfo.DataCenters[0].Weight
-	region2Ratio := gtmInfo.DataCenters[1].Weight
+	region1Ratio := dataCenters[0].Weight
+	region2Ratio := dataCenters[1].Weight
 
 	// Health check của từng region
-	region1Healthy := checkHealth(region1HealthURL)
-	region2Healthy := checkHealth(region2HealthURL)
+	region1Healthy := dataCenters[0].Status == "running"
+	region2Healthy := dataCenters[1].Status == "running"
 
 	// Tính toán tỉ lệ dựa trên số lần truy vấn
 	totalRequests := region1Count + region2Count
@@ -87,19 +79,19 @@ func getRegionIP(domain string) string {
 	// Quyết định region dựa trên tỉ lệ
 	if region1Healthy && !region2Healthy {
 		fmt.Println("Return region1\n==============\n")
-		return region1IP
+		return dataCenters[0].IP
 	} else if !region1Healthy && region2Healthy {
 		fmt.Println("Return region2\n==============\n")
-		return region2IP
+		return dataCenters[1].IP
 	} else if region1Healthy && region2Healthy {
 		if region1RatioWeight < region2RatioWeight {
 			region1Count++
 			fmt.Println("Return region1\n==============\n")
-			return region1IP
+			return dataCenters[0].IP
 		}
 		fmt.Println("Return region2\n==============\n")
 		region2Count++
-		return region2IP
+		return dataCenters[1].IP
 	}
 
 	return "" // Không có region nào khả dụng hoặc không đủ dữ liệu để quyết định
@@ -143,6 +135,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 func init() {
 	initializers.LoadEnvVariables()
 	initializers.ConnectToEtcd()
+	go gtm_healthcheck.StartCheckHealth()
 }
 
 func main() {

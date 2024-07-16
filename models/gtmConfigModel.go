@@ -3,12 +3,13 @@ package models
 type Domain struct {
 	Id          string
 	DomainName  string
-	DataCenters []DataCenter
 	Type        string
+	DataCenters []string
 }
 
 type DataCenter struct {
 	Id             string
+	Domain         Domain
 	Name           string
 	IP             string
 	Status         string
