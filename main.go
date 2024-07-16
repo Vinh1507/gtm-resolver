@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"go-resolver/initializers"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/miekg/dns"
@@ -109,11 +111,16 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	w.WriteMsg(msg)
 }
 
+func init() {
+	initializers.LoadEnvVariables()
+}
+
 func main() {
 	dns.HandleFunc("live.", handleDNSRequest)
 
-	server := &dns.Server{Addr: ":8053", Net: "udp"}
-	log.Printf("Starting DNS server on port 8053\n")
+	port := os.Getenv("PORT")
+	server := &dns.Server{Addr: port, Net: "udp"}
+	log.Printf("Starting DNS server on port %s\n", port)
 	err := server.ListenAndServe()
 	if err != nil {
 		log.Fatalf("Failed to start server: %s\n", err.Error())
