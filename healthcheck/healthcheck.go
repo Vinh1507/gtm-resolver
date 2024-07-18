@@ -5,6 +5,7 @@ import (
 	"fmt"
 	gtm_etcd "go-resolver/etcd"
 	"go-resolver/models"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -12,8 +13,20 @@ import (
 
 func updateDataCenterStatus(dataCenter models.DataCenter, wg *sync.WaitGroup) {
 	defer wg.Done()
-	dataCenterKey := fmt.Sprintf("resource/datacenter/%s", dataCenter.Name)
-	dataCenterJsonData, err := json.Marshal(dataCenter)
+	dataCenterKey := fmt.Sprintf("resource/datacenter/%s_%s", dataCenter.Domain, dataCenter.Name)
+	currentDataCenterJson, err := gtm_etcd.GetEntryByKey(dataCenterKey)
+	if err != nil {
+		fmt.Println("Error getting Data Center:", err)
+		return
+	}
+	var currentDataCenter models.DataCenter
+	err = json.Unmarshal([]byte(currentDataCenterJson.Kvs[len(currentDataCenterJson.Kvs)-1].Value), &currentDataCenter)
+	if err != nil {
+		log.Fatalf("Error unmarshalling currentDataCenter JSON: %s", err)
+	}
+
+	currentDataCenter.Status = dataCenter.Status
+	dataCenterJsonData, err := json.Marshal(currentDataCenter)
 	if err != nil {
 		fmt.Println("Error marshalling Data Center to JSON:", err)
 		return
@@ -30,15 +43,17 @@ func healthCheck(dataCenter models.DataCenter, wg *sync.WaitGroup) {
 
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Printf("Health check failed for %s: %v\n", url, err)
+		// fmt.Printf("Health check failed for %s: %v\n", url, err)
 		dataCenter.Status = "stop"
 	} else {
 		defer resp.Body.Close()
 	}
 
 	if err == nil && resp.StatusCode == http.StatusOK {
+		// fmt.Printf("Health check OK for %s\n", url)
 		dataCenter.Status = "running"
 	} else {
+		// fmt.Printf("Health check Failed for %s\n", url)
 		dataCenter.Status = "stop"
 	}
 

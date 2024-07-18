@@ -3,18 +3,20 @@ package models
 type Domain struct {
 	Id          string
 	DomainName  string
-	Type        string
+	Policy      string
 	DataCenters []string
+	TTL         int
 }
 
 type DataCenter struct {
 	Id             string
-	Domain         Domain
+	Domain         string
 	Name           string
 	IP             string
 	Status         string
 	HealthCheckUrl string
 	Port           int
+	Count          int
 	Weight         int
 	IsPrimary      bool
 	FailoverDelay  int

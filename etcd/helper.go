@@ -2,8 +2,12 @@ package gtm_etcd
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"go-resolver/initializers"
+	"go-resolver/models"
 	"log"
+	"sync"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -71,4 +75,19 @@ func DeleteEntry(key string) error {
 		log.Fatal(err)
 	}
 	return err
+}
+
+func UpdateDataCenterStatus(dataCenter models.DataCenter, wg *sync.WaitGroup) {
+	defer wg.Done()
+	dataCenterKey := fmt.Sprintf("resource/datacenter/%s_%s", dataCenter.Domain, dataCenter.Name)
+
+	fmt.Println("KEY: ", dataCenterKey)
+
+	dataCenterJsonData, err := json.Marshal(dataCenter)
+	if err != nil {
+		fmt.Println("Error marshalling Data Center to JSON:", err)
+		return
+	}
+	fmt.Println("VALUE: ", string(dataCenterJsonData))
+	PutEntry(dataCenterKey, string(dataCenterJsonData))
 }

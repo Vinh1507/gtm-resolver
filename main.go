@@ -4,21 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	gtm_etcd "go-resolver/etcd"
+	"go-resolver/geo_location"
 	gtm_healthcheck "go-resolver/healthcheck"
 	"go-resolver/initializers"
 	"go-resolver/models"
 	"log"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/miekg/dns"
 )
 
-// Biến đếm số lần truy vấn cho từng region
-var (
-	region1Count = 0
-	region2Count = 0
-)
+var wg sync.WaitGroup
 
 func getRegionIP(domain string) string {
 	var gtmInfo models.Domain
@@ -57,43 +55,24 @@ func getRegionIP(domain string) string {
 		dataCenters = append(dataCenters, dataCenter)
 	}
 
-	// Các hằng số để xác định tỉ lệ phân phối
-	region1Ratio := dataCenters[0].Weight
-	region2Ratio := dataCenters[1].Weight
-
-	// Health check của từng region
-	region1Healthy := dataCenters[0].Status == "running"
-	region2Healthy := dataCenters[1].Status == "running"
-
-	// Tính toán tỉ lệ dựa trên số lần truy vấn
-	totalRequests := region1Count + region2Count
-	var region1RatioWeight, region2RatioWeight float64
-	if totalRequests > 0 {
-		region1RatioWeight = float64(region1Count) / float64(region1Ratio)
-		region2RatioWeight = float64(region2Count) / float64(region2Ratio)
-
-	}
-
-	fmt.Printf("region1: %d, region2: %d\n", region1Count, region2Count)
-
-	// Quyết định region dựa trên tỉ lệ
-	if region1Healthy && !region2Healthy {
-		fmt.Println("Return region1\n==============\n")
-		return dataCenters[0].IP
-	} else if !region1Healthy && region2Healthy {
-		fmt.Println("Return region2\n==============\n")
-		return dataCenters[1].IP
-	} else if region1Healthy && region2Healthy {
-		if region1RatioWeight < region2RatioWeight {
-			region1Count++
-			fmt.Println("Return region1\n==============\n")
-			return dataCenters[0].IP
+	var selectedDataCenter models.DataCenter
+	var minimumWeightRating float64 = 1000000000
+	for _, dataCenter := range dataCenters {
+		if dataCenter.Status == "running" {
+			fmt.Println(dataCenter)
+			regionWeightRating := float64(dataCenter.Count) / float64(dataCenter.Weight)
+			if regionWeightRating < minimumWeightRating {
+				minimumWeightRating = regionWeightRating
+				selectedDataCenter = dataCenter
+			}
 		}
-		fmt.Println("Return region2\n==============\n")
-		region2Count++
-		return dataCenters[1].IP
 	}
-
+	if selectedDataCenter.IP != "" {
+		selectedDataCenter.Count += 1
+		wg.Add(1)
+		go gtm_etcd.UpdateDataCenterStatus(selectedDataCenter, &wg)
+		return selectedDataCenter.IP
+	}
 	return "" // Không có region nào khả dụng hoặc không đủ dữ liệu để quyết định
 }
 
@@ -101,6 +80,9 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
 	ttl := uint32(60)
+	sourceIP := w.RemoteAddr().(*net.UDPAddr).IP
+	regionLocation, cityLocation, continent := geo_location.LookupGeoLocation(sourceIP.String())
+	fmt.Println("GEO LOCATION: ", sourceIP, regionLocation, cityLocation, continent)
 
 	for _, q := range r.Question {
 		domain := q.Name
@@ -150,4 +132,5 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to start server: %s\n", err.Error())
 	}
+	wg.Wait()
 }

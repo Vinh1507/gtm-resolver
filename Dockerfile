@@ -30,6 +30,7 @@ COPY --from=builder /app/main .
 # COPY --from=builder /app/main . isn't copying the .env file, it copies only the application binary
 COPY .env /root
 
+COPY GeoLite2-City.mmdb /root
 
 # Command to run the executable
 ENTRYPOINT ["./main"]
