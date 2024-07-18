@@ -11,7 +11,31 @@ import (
 	"time"
 )
 
-func updateDataCenterStatus(dataCenter models.DataCenter, wg *sync.WaitGroup) {
+func updateDataCenterHistory(dataCenter models.DataCenter, historyRecord models.DataCenterHistory, wg *sync.WaitGroup) {
+	defer wg.Done()
+	dataCenterKey := fmt.Sprintf("resource/datacenterhistory/%s", dataCenter.Domain)
+	currentDataCenterJson, err := gtm_etcd.GetEntryByKey(dataCenterKey)
+	if err != nil {
+		fmt.Println("Error getting Data Center:", err)
+		return
+	}
+	var currentDataCenterHistory []models.DataCenterHistory
+
+	if len(currentDataCenterJson.Kvs) > 0 {
+		err = json.Unmarshal([]byte(currentDataCenterJson.Kvs[len(currentDataCenterJson.Kvs)-1].Value), &currentDataCenterHistory)
+		if err != nil {
+			log.Fatalf("Error unmarshalling Data Center History JSON: %s", err)
+		}
+	}
+	currentDataCenterHistory = append(currentDataCenterHistory, historyRecord)
+	dataCenterJsonData, err := json.Marshal(currentDataCenterHistory)
+	if err != nil {
+		fmt.Println("Error marshalling Data Center History to JSON:", err)
+		return
+	}
+	gtm_etcd.PutEntry(dataCenterKey, string(dataCenterJsonData))
+}
+func updateDataCenterStatus(dataCenter models.DataCenter, responseCode int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	dataCenterKey := fmt.Sprintf("resource/datacenter/%s_%s", dataCenter.Domain, dataCenter.Name)
 	currentDataCenterJson, err := gtm_etcd.GetEntryByKey(dataCenterKey)
@@ -20,18 +44,39 @@ func updateDataCenterStatus(dataCenter models.DataCenter, wg *sync.WaitGroup) {
 		return
 	}
 	var currentDataCenter models.DataCenter
-	err = json.Unmarshal([]byte(currentDataCenterJson.Kvs[len(currentDataCenterJson.Kvs)-1].Value), &currentDataCenter)
-	if err != nil {
-		log.Fatalf("Error unmarshalling currentDataCenter JSON: %s", err)
+
+	if len(currentDataCenterJson.Kvs) > 0 {
+		err = json.Unmarshal([]byte(currentDataCenterJson.Kvs[len(currentDataCenterJson.Kvs)-1].Value), &currentDataCenter)
+		if err != nil {
+			log.Fatalf("Error unmarshalling currentDataCenter JSON: %s", err)
+		}
 	}
 
-	currentDataCenter.Status = dataCenter.Status
-	dataCenterJsonData, err := json.Marshal(currentDataCenter)
-	if err != nil {
-		fmt.Println("Error marshalling Data Center to JSON:", err)
-		return
+	if currentDataCenter.Status == "" || currentDataCenter.Status != dataCenter.Status {
+		historyRecord := models.DataCenterHistory{
+			DataCenterName: dataCenter.Name,
+			HealthCheckUrl: dataCenter.HealthCheckUrl,
+			Domain:         dataCenter.Domain,
+			Status:         dataCenter.Status,
+			ResponseCode:   responseCode,
+			Reason:         "",
+			TimeStamp:      time.Now().Format(time.RFC3339),
+		}
+		wg.Add(1)
+		go updateDataCenterHistory(currentDataCenter, historyRecord, wg)
+
+		if currentDataCenter.Status == "" {
+			currentDataCenter = dataCenter
+		} else {
+			currentDataCenter.Status = dataCenter.Status
+		}
+		dataCenterJsonData, err := json.Marshal(currentDataCenter)
+		if err != nil {
+			fmt.Println("Error marshalling Data Center to JSON:", err)
+			return
+		}
+		gtm_etcd.PutEntry(dataCenterKey, string(dataCenterJsonData))
 	}
-	gtm_etcd.PutEntry(dataCenterKey, string(dataCenterJsonData))
 }
 func healthCheck(dataCenter models.DataCenter, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -57,8 +102,14 @@ func healthCheck(dataCenter models.DataCenter, wg *sync.WaitGroup) {
 		dataCenter.Status = "stop"
 	}
 
+	var statusCode int
+	if err == nil && resp != nil {
+		statusCode = resp.StatusCode
+	} else {
+		statusCode = 0
+	}
 	wg.Add(1)
-	go updateDataCenterStatus(dataCenter, wg)
+	go updateDataCenterStatus(dataCenter, statusCode, wg)
 }
 
 func checkServers(dataCenters []models.DataCenter) {

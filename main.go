@@ -18,6 +18,8 @@ import (
 
 var wg sync.WaitGroup
 
+var ttl uint32
+
 func getRegionIP(domain string) string {
 	var gtmInfo models.Domain
 	key := fmt.Sprintf("resource/domain/%s", domain)
@@ -36,6 +38,7 @@ func getRegionIP(domain string) string {
 		fmt.Println("Cannot unmarshal gtm info")
 		return ""
 	}
+	ttl = uint32(gtmInfo.TTL)
 	dataCenterKeys := gtmInfo.DataCenters
 	dataCenters := make([]models.DataCenter, 0)
 
@@ -59,7 +62,6 @@ func getRegionIP(domain string) string {
 	var minimumWeightRating float64 = 1000000000
 	for _, dataCenter := range dataCenters {
 		if dataCenter.Status == "running" {
-			fmt.Println(dataCenter)
 			regionWeightRating := float64(dataCenter.Count) / float64(dataCenter.Weight)
 			if regionWeightRating < minimumWeightRating {
 				minimumWeightRating = regionWeightRating
@@ -79,7 +81,6 @@ func getRegionIP(domain string) string {
 func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
 	msg.SetReply(r)
-	ttl := uint32(60)
 	sourceIP := w.RemoteAddr().(*net.UDPAddr).IP
 	regionLocation, cityLocation, continent := geo_location.LookupGeoLocation(sourceIP.String())
 	fmt.Println("GEO LOCATION: ", sourceIP, regionLocation, cityLocation, continent)
@@ -103,7 +104,7 @@ func handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 					Name:   q.Name,
 					Rrtype: dns.TypeA,
 					Class:  dns.ClassINET,
-					Ttl:    ttl, // TTL được đặt thành 60 giây
+					Ttl:    ttl,
 				},
 				A: net.ParseIP(ip),
 			}

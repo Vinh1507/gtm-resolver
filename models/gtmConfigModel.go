@@ -40,3 +40,13 @@ type Resource struct {
 	TargetLoad  int
 	MaxLoad     int
 }
+
+type DataCenterHistory struct {
+	DataCenterName string
+	HealthCheckUrl string
+	Domain         string
+	Status         string
+	ResponseCode   int
+	Reason         string
+	TimeStamp      string
+}
